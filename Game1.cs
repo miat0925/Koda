@@ -131,6 +131,8 @@ namespace KodaRacer
         double _nowMs = 0;
         KeyboardState _prevKs;
         GamePadState _prevGp;
+        PlayerIndex _gpIndex = PlayerIndex.One;
+        bool _gpConnected = false;
         int _carIndex = 0;
 
         static readonly Color[] CarColors =
@@ -249,6 +251,28 @@ namespace KodaRacer
         // ------------------------------------------------------------------
         const float StickDeadzone = 0.35f;
         const float TriggerDeadzone = 0.25f;
+
+        // Xbox (and any XInput/SDL) controllers don't always land on slot 1 -
+        // e.g. if another HID device grabbed that slot first. Scan all four
+        // slots and stick with whichever one is actually connected.
+        GamePadState GetGamePadState()
+        {
+            var current = GamePad.GetState(_gpIndex);
+            if (current.IsConnected) return current;
+
+            int max = Math.Min(4, GamePad.MaximumGamePadCount);
+            for (int i = 0; i < max; i++)
+            {
+                var idx = (PlayerIndex)i;
+                var gp = GamePad.GetState(idx);
+                if (gp.IsConnected)
+                {
+                    _gpIndex = idx;
+                    return gp;
+                }
+            }
+            return current;
+        }
 
         static bool GpUp(GamePadState gp) =>
             gp.IsButtonDown(Buttons.A) || gp.IsButtonDown(Buttons.DPadUp) ||
@@ -972,7 +996,8 @@ namespace KodaRacer
             _nowMs = gameTime.TotalGameTime.TotalMilliseconds;
 
             var ks = Keyboard.GetState();
-            var gp = GamePad.GetState(PlayerIndex.One);
+            var gp = GetGamePadState();
+            _gpConnected = gp.IsConnected;
             bool enterPressed = (ks.IsKeyDown(Keys.Enter) && !_prevKs.IsKeyDown(Keys.Enter))
                 || (gp.IsButtonDown(Buttons.Start) && !_prevGp.IsButtonDown(Buttons.Start))
                 || (gp.IsButtonDown(Buttons.A) && !_prevGp.IsButtonDown(Buttons.A));
@@ -1020,7 +1045,7 @@ namespace KodaRacer
             if (_state == GameState.Playing)
                 UpdateGame(dt, ks, gp);
             else
-                GamePad.SetVibration(PlayerIndex.One, 0f, 0f);
+                GamePad.SetVibration(_gpIndex, 0f, 0f);
 
             _prevKs = ks;
             _prevGp = gp;
@@ -1121,7 +1146,7 @@ namespace KodaRacer
             if (_flashTimer > 0) _flashTimer = Math.Max(0, _flashTimer - dt);
 
             float vib = MathHelper.Clamp(_shake / 30f, 0, 1);
-            GamePad.SetVibration(PlayerIndex.One, vib * 0.7f, vib * 0.4f);
+            GamePad.SetVibration(_gpIndex, vib * 0.7f, vib * 0.4f);
         }
 
         // ------------------------------------------------------------------
@@ -1201,7 +1226,7 @@ namespace KodaRacer
             DrawSpeedLines(speedRatio > 0.6f ? (speedRatio - 0.6f) / 0.4f : 0);
 
             var ks = Keyboard.GetState();
-            var gp = GamePad.GetState(PlayerIndex.One);
+            var gp = GetGamePadState();
             if (_state == GameState.Playing || _state == GameState.Results) DrawPlayerCar(ks, gp);
             DrawParticles();
 
@@ -1265,6 +1290,11 @@ namespace KodaRacer
             string muteTxt = _muted ? "M UNMUTE" : "M MUTE";
             var muteSize = _font.MeasureString(muteTxt) * scale * 0.75f;
             _spriteBatch.DrawString(_font, muteTxt, new Vector2(ScreenW - pad - muteSize.X, ScreenH - pad - muteSize.Y), new Color(0x3e, 0xf3, 0xff), 0, Vector2.Zero, scale * 0.75f, SpriteEffects.None, 0);
+
+            string padTxt = _gpConnected ? "GAMEPAD: CONNECTED" : "GAMEPAD: NOT DETECTED";
+            Color padColor = _gpConnected ? new Color(0x39, 0xff, 0x88) : new Color(0x9a, 0x8b, 0xd0);
+            var padSize = _font.MeasureString(padTxt) * scale * 0.75f;
+            _spriteBatch.DrawString(_font, padTxt, new Vector2(pad, ScreenH - pad - padSize.Y), padColor, 0, Vector2.Zero, scale * 0.75f, SpriteEffects.None, 0);
         }
 
         void DrawMenu()
