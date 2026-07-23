@@ -1,6 +1,6 @@
 # KODA
 
-START
+https://miat0925.bandcamp.com
 
 ## Play in the browser
 
