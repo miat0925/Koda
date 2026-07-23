@@ -1,7 +1,6 @@
 # KODA
 
-A retro cyberpunk pixel-art racing game — pseudo-3D OutRun-style road with
-hills, curves, traffic, checkpoints, and a timer.
+START
 
 ## Play in the browser
 
