@@ -5,6 +5,22 @@ road projection, track generation, traffic, checkpoints, timer, and menu, now
 running on the GPU via `BasicEffect` + triangle primitives instead of canvas
 polygon fills.
 
+## Play in the browser (no install)
+
+The `docs/` folder has the original HTML5/canvas version — just a static
+page, no build step. Open `docs/index.html` directly in any browser to play
+locally, or enable GitHub Pages for this repo to get a shareable link:
+
+1. On GitHub, go to this repo's **Settings → Pages**.
+2. Under "Build and deployment", set **Source** to "Deploy from a branch".
+3. Set **Branch** to `main`, folder to `/docs` (that's the only non-root
+   option GitHub Pages supports, which is why this folder is named `docs`
+   instead of something like `web`), then **Save**.
+4. GitHub gives you a URL like `https://miat0925.github.io/Koda/` after a
+   minute or two — that's the link to send people.
+
+## MonoGame desktop version
+
 ## Important: changes since the first build aren't compiler-verified
 
 The sandbox this is written in has no .NET SDK, no root access to install
