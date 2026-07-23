@@ -130,6 +130,7 @@ namespace KodaRacer
         bool _muted = false;
         double _nowMs = 0;
         KeyboardState _prevKs;
+        GamePadState _prevGp;
         int _carIndex = 0;
 
         static readonly Color[] CarColors =
@@ -244,12 +245,29 @@ namespace KodaRacer
         }
 
         // ------------------------------------------------------------------
-        // Input helpers
+        // Input helpers (keyboard + gamepad, both accepted)
         // ------------------------------------------------------------------
-        static bool KeyUp(KeyboardState ks) => ks.IsKeyDown(Keys.Up) || ks.IsKeyDown(Keys.W);
-        static bool KeyBrake(KeyboardState ks) => ks.IsKeyDown(Keys.Down) || ks.IsKeyDown(Keys.S);
-        static bool KeyLeft(KeyboardState ks) => ks.IsKeyDown(Keys.Left) || ks.IsKeyDown(Keys.A);
-        static bool KeyRight(KeyboardState ks) => ks.IsKeyDown(Keys.Right) || ks.IsKeyDown(Keys.D);
+        const float StickDeadzone = 0.35f;
+        const float TriggerDeadzone = 0.25f;
+
+        static bool GpUp(GamePadState gp) =>
+            gp.IsButtonDown(Buttons.A) || gp.IsButtonDown(Buttons.DPadUp) ||
+            gp.Triggers.Right > TriggerDeadzone || gp.ThumbSticks.Left.Y > StickDeadzone;
+
+        static bool GpBrake(GamePadState gp) =>
+            gp.IsButtonDown(Buttons.B) || gp.IsButtonDown(Buttons.X) || gp.IsButtonDown(Buttons.DPadDown) ||
+            gp.Triggers.Left > TriggerDeadzone || gp.ThumbSticks.Left.Y < -StickDeadzone;
+
+        static bool GpLeft(GamePadState gp) =>
+            gp.IsButtonDown(Buttons.DPadLeft) || gp.ThumbSticks.Left.X < -StickDeadzone;
+
+        static bool GpRight(GamePadState gp) =>
+            gp.IsButtonDown(Buttons.DPadRight) || gp.ThumbSticks.Left.X > StickDeadzone;
+
+        static bool KeyUp(KeyboardState ks, GamePadState gp) => ks.IsKeyDown(Keys.Up) || ks.IsKeyDown(Keys.W) || GpUp(gp);
+        static bool KeyBrake(KeyboardState ks, GamePadState gp) => ks.IsKeyDown(Keys.Down) || ks.IsKeyDown(Keys.S) || GpBrake(gp);
+        static bool KeyLeft(KeyboardState ks, GamePadState gp) => ks.IsKeyDown(Keys.Left) || ks.IsKeyDown(Keys.A) || GpLeft(gp);
+        static bool KeyRight(KeyboardState ks, GamePadState gp) => ks.IsKeyDown(Keys.Right) || ks.IsKeyDown(Keys.D) || GpRight(gp);
 
         // ------------------------------------------------------------------
         // Math helpers (mirrors JS easing/percent helpers)
@@ -773,11 +791,11 @@ namespace KodaRacer
             }
         }
 
-        void DrawPlayerCar(KeyboardState ks)
+        void DrawPlayerCar(KeyboardState ks, GamePadState gp)
         {
             float steer = 0;
-            if (KeyLeft(ks)) steer = -1;
-            if (KeyRight(ks)) steer = 1;
+            if (KeyLeft(ks, gp)) steer = -1;
+            if (KeyRight(ks, gp)) steer = 1;
             float lean = steer * 6;
             float rotation;
             if (_spinTimer > 0)
@@ -954,10 +972,15 @@ namespace KodaRacer
             _nowMs = gameTime.TotalGameTime.TotalMilliseconds;
 
             var ks = Keyboard.GetState();
-            bool enterPressed = ks.IsKeyDown(Keys.Enter) && !_prevKs.IsKeyDown(Keys.Enter);
-            bool mPressed = ks.IsKeyDown(Keys.M) && !_prevKs.IsKeyDown(Keys.M);
-            bool leftEdge = KeyLeft(ks) && !(_prevKs.IsKeyDown(Keys.Left) || _prevKs.IsKeyDown(Keys.A));
-            bool rightEdge = KeyRight(ks) && !(_prevKs.IsKeyDown(Keys.Right) || _prevKs.IsKeyDown(Keys.D));
+            var gp = GamePad.GetState(PlayerIndex.One);
+            bool enterPressed = (ks.IsKeyDown(Keys.Enter) && !_prevKs.IsKeyDown(Keys.Enter))
+                || (gp.IsButtonDown(Buttons.Start) && !_prevGp.IsButtonDown(Buttons.Start))
+                || (gp.IsButtonDown(Buttons.A) && !_prevGp.IsButtonDown(Buttons.A));
+            bool mPressed = (ks.IsKeyDown(Keys.M) && !_prevKs.IsKeyDown(Keys.M))
+                || (gp.IsButtonDown(Buttons.Back) && !_prevGp.IsButtonDown(Buttons.Back))
+                || (gp.IsButtonDown(Buttons.Y) && !_prevGp.IsButtonDown(Buttons.Y));
+            bool leftEdge = KeyLeft(ks, gp) && !KeyLeft(_prevKs, _prevGp);
+            bool rightEdge = KeyRight(ks, gp) && !KeyRight(_prevKs, _prevGp);
 
             if (enterPressed)
             {
@@ -995,13 +1018,16 @@ namespace KodaRacer
             UpdateParticles(dt);
 
             if (_state == GameState.Playing)
-                UpdateGame(dt, ks);
+                UpdateGame(dt, ks, gp);
+            else
+                GamePad.SetVibration(PlayerIndex.One, 0f, 0f);
 
             _prevKs = ks;
+            _prevGp = gp;
             base.Update(gameTime);
         }
 
-        void UpdateGame(float dt, KeyboardState ks)
+        void UpdateGame(float dt, KeyboardState ks, GamePadState gp)
         {
             var baseSegment = FindSegment(_position);
 
@@ -1024,8 +1050,8 @@ namespace KodaRacer
             }
             else
             {
-                if (KeyUp(ks)) _speed += _accel * dt;
-                else if (KeyBrake(ks)) _speed += _brakePower * dt;
+                if (KeyUp(ks, gp)) _speed += _accel * dt;
+                else if (KeyBrake(ks, gp)) _speed += _brakePower * dt;
                 else _speed += _decel * dt;
 
                 if ((_playerX < -1 || _playerX > 1) && _speed > _offRoadLimit)
@@ -1039,8 +1065,8 @@ namespace KodaRacer
                 float steerPower = 0.35f + 0.65f * (_speed / _maxSpeed);
                 float dxSteer = dt * 2.4f * steerPower;
                 bool steering = false;
-                if (KeyLeft(ks)) { _playerX -= dxSteer; steering = true; }
-                if (KeyRight(ks)) { _playerX += dxSteer; steering = true; }
+                if (KeyLeft(ks, gp)) { _playerX -= dxSteer; steering = true; }
+                if (KeyRight(ks, gp)) { _playerX += dxSteer; steering = true; }
                 if (steering && _speed > _maxSpeed * 0.5f) SpawnDust(ScreenW / 2f, ScreenH - 20, false);
 
                 _playerX -= dxSteer * (_speed / _maxSpeed) * baseSegment.Curve * Centrifugal;
@@ -1093,6 +1119,9 @@ namespace KodaRacer
 
             if (_shake > 0) _shake = Math.Max(0, _shake - dt * 40);
             if (_flashTimer > 0) _flashTimer = Math.Max(0, _flashTimer - dt);
+
+            float vib = MathHelper.Clamp(_shake / 30f, 0, 1);
+            GamePad.SetVibration(PlayerIndex.One, vib * 0.7f, vib * 0.4f);
         }
 
         // ------------------------------------------------------------------
@@ -1172,7 +1201,8 @@ namespace KodaRacer
             DrawSpeedLines(speedRatio > 0.6f ? (speedRatio - 0.6f) / 0.4f : 0);
 
             var ks = Keyboard.GetState();
-            if (_state == GameState.Playing || _state == GameState.Results) DrawPlayerCar(ks);
+            var gp = GamePad.GetState(PlayerIndex.One);
+            if (_state == GameState.Playing || _state == GameState.Results) DrawPlayerCar(ks, gp);
             DrawParticles();
 
             if (_shake > 0.5f)
@@ -1271,11 +1301,12 @@ namespace KodaRacer
             {
                 "UP/W ACCELERATE    DOWN/S BRAKE",
                 "LEFT/A  RIGHT/D STEER   M MUTE",
+                "GAMEPAD: STICK/D-PAD STEER, A ACCEL, B BRAKE",
                 "",
                 "REACH THE GOAL BEFORE TIME RUNS OUT",
                 "CHECKPOINTS ADD TIME - TRAFFIC SPINS YOU OUT",
                 "",
-                "PRESS ENTER TO CHOOSE YOUR CAR"
+                "PRESS ENTER OR START TO CHOOSE YOUR CAR"
             };
             float keyScale = MathHelper.Clamp(ScreenW * 0.011f, 9, 14) / _font.LineSpacing;
             foreach (var line in lines)
@@ -1324,7 +1355,7 @@ namespace KodaRacer
             _spriteBatch.DrawString(_font, counter, new Vector2(centerX - counterSize.X / 2f, y), new Color(0x55, 0x55, 0x55), 0, Vector2.Zero, counterScale, SpriteEffects.None, 0);
             y += counterSize.Y + 30;
 
-            string[] lines = { "LEFT/A   RIGHT/D   BROWSE", "PRESS ENTER TO RACE" };
+            string[] lines = { "LEFT/A   RIGHT/D   BROWSE", "GAMEPAD: D-PAD/STICK BROWSE, A RACE", "PRESS ENTER TO RACE" };
             float keyScale = MathHelper.Clamp(ScreenW * 0.013f, 10, 16) / _font.LineSpacing;
             foreach (var line in lines)
             {
