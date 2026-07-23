@@ -75,9 +75,16 @@
     letter-spacing: 2px;
   }
   #overlay .sub { font-size: clamp(11px, 1.4vw, 18px); color: #333; text-shadow: none; }
-  #overlay .msg { font-size: clamp(12px, 1.5vw, 18px); margin-top: 6px; color: #0a0a0a; text-shadow: none; font-weight: bold; }
+  #overlay .msg { font-size: clamp(12px, 1.5vw, 18px); margin-top: 6px; color: #0a0a0a; text-shadow: none; font-weight: bold; line-height: 1.8; }
   #overlay .keys { font-size: clamp(9px, 1.1vw, 14px); color: #555; line-height: 1.9; margin-top: 10px; }
   #overlay .hidden { display: none; }
+  #overlay .swatch {
+    width: min(46vw, 260px); height: calc(min(46vw, 260px) * 0.62);
+    background: #0a0a0a; box-sizing: border-box; padding: 6px;
+  }
+  #overlay .swatch .inner { width: 100%; height: 100%; }
+  #overlay .carname { font-size: clamp(14px, 2.2vw, 24px); color: #0a0a0a; letter-spacing: 1px; }
+  #overlay .carcount { font-size: clamp(10px, 1.2vw, 14px); color: #555; margin-top: -8px; }
 </style>
 </head>
 <body>
@@ -96,20 +103,19 @@
     <img id="logo" src="koda_logo.png" alt="KODA" onerror="this.style.display='none'">
     <h1 id="ovTitle">KODA</h1>
     <div class="sub" id="ovSub"></div>
+    <div class="swatch hidden" id="ovSwatch"><div class="inner" id="ovSwatchInner"></div></div>
+    <div class="carname hidden" id="ovCarName"></div>
+    <div class="carcount hidden" id="ovCarCount"></div>
     <div class="msg hidden" id="ovMsg"></div>
-    <div class="keys">
-      &uarr; / W&nbsp; ACCELERATE&nbsp;&nbsp;&nbsp; &darr; / S&nbsp; BRAKE<br>
-      &larr; / A&nbsp; &rarr; / D&nbsp; STEER&nbsp;&nbsp;&nbsp; M&nbsp; MUTE<br><br>
-      REACH THE GOAL BEFORE TIME RUNS OUT<br>
-      CHECKPOINTS ADD TIME &middot; TRAFFIC SPINS YOU OUT<br><br>
-      PRESS ENTER TO START
-    </div>
+    <div class="keys" id="ovKeys"></div>
   </div>
   <div id="muteHint" style="position:absolute; bottom:clamp(8px,1.5vw,20px); right:clamp(12px,2vw,32px); font-size:clamp(9px,1vw,13px); color:#3ef3ff; text-shadow:0 0 6px #3ef3ff; opacity:0.8;">M MUTE</div>
 </div>
 
 <audio id="bgmMenu" src="koda_menu_theme.mp3" loop preload="auto"></audio>
 <audio id="bgmRace" src="neon_drift_theme.mp3" loop preload="auto"></audio>
+<audio id="bgmCarSelect" src="koda_car_select_theme.mp3" loop preload="auto"></audio>
+<audio id="bgmResults" src="koda_results_theme.mp3" loop preload="auto"></audio>
 
 <script>
 (function(){
@@ -126,24 +132,60 @@
   var hudSpeed = document.getElementById('hudSpeed');
   var hudStage = document.getElementById('hudStage');
   var overlay = document.getElementById('overlay');
+  var logo = document.getElementById('logo');
   var ovTitle = document.getElementById('ovTitle');
   var ovSub = document.getElementById('ovSub');
+  var ovSwatch = document.getElementById('ovSwatch');
+  var ovSwatchInner = document.getElementById('ovSwatchInner');
+  var ovCarName = document.getElementById('ovCarName');
+  var ovCarCount = document.getElementById('ovCarCount');
   var ovMsg = document.getElementById('ovMsg');
+  var ovKeys = document.getElementById('ovKeys');
   var bgmMenu = document.getElementById('bgmMenu');
   var bgmRace = document.getElementById('bgmRace');
+  var bgmCarSelect = document.getElementById('bgmCarSelect');
+  var bgmResults = document.getElementById('bgmResults');
   var muteHint = document.getElementById('muteHint');
   bgmMenu.volume = 0.6;
   bgmRace.volume = 0.55;
+  bgmCarSelect.volume = 0.6;
+  bgmResults.volume = 0.6;
   var muted = false;
 
+  var PLAYER_CARS = [
+    { color: '#3ef3ff', name: 'NEON CYAN' },
+    { color: '#ff2bd6', name: 'HOT PINK' },
+    { color: '#ffea00', name: 'VOLT YELLOW' },
+    { color: '#39ff88', name: 'ACID GREEN' },
+    { color: '#ff5500', name: 'SUNSET ORANGE' },
+    { color: '#c86bff', name: 'ULTRAVIOLET' }
+  ];
+  var carIndex = 0;
+
   function playMenuMusic(){
-    bgmRace.pause();
+    bgmRace.pause(); bgmCarSelect.pause(); bgmResults.pause();
     bgmMenu.play().catch(function(){});
   }
   function playRaceMusic(){
-    bgmMenu.pause();
+    bgmMenu.pause(); bgmCarSelect.pause(); bgmResults.pause();
     bgmRace.currentTime = 0;
     bgmRace.play().catch(function(){});
+  }
+  function playCarSelectMusic(){
+    bgmMenu.pause(); bgmRace.pause(); bgmResults.pause();
+    bgmCarSelect.currentTime = 0;
+    bgmCarSelect.play().catch(function(){});
+  }
+  function playResultsMusic(){
+    bgmMenu.pause(); bgmRace.pause(); bgmCarSelect.pause();
+    bgmResults.currentTime = 0;
+    bgmResults.play().catch(function(){});
+  }
+  function currentBgm(){
+    if (state === 'carselect') return bgmCarSelect;
+    if (state === 'playing') return bgmRace;
+    if (state === 'results') return bgmResults;
+    return bgmMenu;
   }
 
   var roadWidth = 2200;
@@ -195,20 +237,42 @@
   window.addEventListener('keydown', function(e){
     keys[e.key.toLowerCase()] = true;
 
-    if ((state === 'ready' || state === 'finished') && bgmMenu.paused) {
-      bgmMenu.play().catch(function(){});
+    if (state !== 'playing') {
+      var want = currentBgm();
+      if (want.paused) want.play().catch(function(){});
     }
 
-    if (e.key === 'Enter') {
-      if (state === 'ready' || state === 'finished') {
-        startGame();
-        playRaceMusic();
+    if (!e.repeat) {
+      if (e.key === 'Enter') {
+        if (state === 'ready') {
+          state = 'carselect';
+          showCarSelect();
+        } else if (state === 'carselect') {
+          startGame();
+          playRaceMusic();
+        } else if (state === 'results') {
+          state = 'ready';
+          showReadyOverlay();
+        }
+      }
+      if (state === 'carselect') {
+        var k = e.key.toLowerCase();
+        if (k === 'arrowleft' || k === 'a') {
+          carIndex = (carIndex - 1 + PLAYER_CARS.length) % PLAYER_CARS.length;
+          updateCarSelectUI();
+        }
+        if (k === 'arrowright' || k === 'd') {
+          carIndex = (carIndex + 1) % PLAYER_CARS.length;
+          updateCarSelectUI();
+        }
       }
     }
     if (e.key.toLowerCase() === 'm') {
       muted = !muted;
       bgmMenu.muted = muted;
       bgmRace.muted = muted;
+      bgmCarSelect.muted = muted;
+      bgmResults.muted = muted;
       muteHint.textContent = muted ? 'M UNMUTE' : 'M MUTE';
     }
     if (['arrowup','arrowdown','arrowleft','arrowright',' '].indexOf(e.key.toLowerCase()) !== -1) e.preventDefault();
@@ -706,8 +770,10 @@
       ctx.restore();
     }
 
-    drawPixelCar(cx, baseY, carW, '#3ef3ff', rotation);
-    ctx.fillStyle = 'rgba(62,243,255,0.5)';
+    var playerColor = PLAYER_CARS[carIndex].color;
+    drawPixelCar(cx, baseY, carW, playerColor, rotation);
+    var pcRgb = COLOR_CACHE[playerColor] || (COLOR_CACHE[playerColor] = hexToRgb(playerColor));
+    ctx.fillStyle = 'rgba(' + pcRgb[0] + ',' + pcRgb[1] + ',' + pcRgb[2] + ',0.5)';
     ctx.fillRect(cx - carW*0.35, baseY + 4, carW*0.7, 5);
   }
 
@@ -779,8 +845,8 @@
     if (timeLeft <= 0) {
       timeLeft = 0;
       speed = 0;
-      state = 'finished';
-      showOverlay('TIME UP', 'the neon fades...', true);
+      state = 'results';
+      showResults('TIME UP', 'the neon fades...');
       return;
     }
 
@@ -843,9 +909,9 @@
     }
 
     if (distanceTraveled >= trackLength) {
-      state = 'finished';
+      state = 'results';
       score += Math.floor(timeLeft) * 100;
-      showOverlay('GOAL!', 'stage clear', true);
+      showResults('GOAL!', 'stage clear');
     }
 
     if (shake > 0) shake = Math.max(0, shake - dt * 40);
@@ -926,7 +992,7 @@
     var speedRatio = speed / maxSpeed;
     drawSpeedLines(speedRatio > 0.6 ? (speedRatio - 0.6) / 0.4 : 0);
 
-    if (state === 'playing' || state === 'finished') drawPlayerCar();
+    if (state === 'playing' || state === 'results') drawPlayerCar();
     drawParticles();
 
     if (shake > 0.5) {
@@ -948,18 +1014,67 @@
     }
   }
 
-  function showOverlay(title, sub, showRestart){
+  function setKeysHTML(html){ ovKeys.innerHTML = html; }
+
+  function showReadyOverlay(){
     overlay.style.display = 'flex';
-    ovTitle.textContent = title;
-    ovSub.textContent = sub;
-    if (showRestart) {
-      ovMsg.classList.remove('hidden');
-      ovMsg.textContent = 'SCORE ' + Math.floor(score).toString().padStart(6,'0') + '  //  PRESS ENTER TO RETRY';
-    } else {
-      ovMsg.classList.add('hidden');
-    }
+    logo.style.display = '';
+    ovTitle.textContent = 'KODA';
+    ovSub.textContent = '';
+    ovSwatch.classList.add('hidden');
+    ovCarName.classList.add('hidden');
+    ovCarCount.classList.add('hidden');
+    ovMsg.classList.add('hidden');
+    setKeysHTML(
+      '&uarr; / W&nbsp; ACCELERATE&nbsp;&nbsp;&nbsp; &darr; / S&nbsp; BRAKE<br>' +
+      '&larr; / A&nbsp; &rarr; / D&nbsp; STEER&nbsp;&nbsp;&nbsp; M&nbsp; MUTE<br><br>' +
+      'REACH THE GOAL BEFORE TIME RUNS OUT<br>' +
+      'CHECKPOINTS ADD TIME &middot; TRAFFIC SPINS YOU OUT<br><br>' +
+      'PRESS ENTER TO CHOOSE YOUR CAR'
+    );
     playMenuMusic();
   }
+
+  function updateCarSelectUI(){
+    var car = PLAYER_CARS[carIndex];
+    ovSwatchInner.style.background = car.color;
+    ovCarName.textContent = (PLAYER_CARS.length > 1 ? '< ' : '') + car.name + (PLAYER_CARS.length > 1 ? ' >' : '');
+    ovCarCount.textContent = (carIndex + 1) + ' / ' + PLAYER_CARS.length;
+  }
+
+  function showCarSelect(){
+    overlay.style.display = 'flex';
+    logo.style.display = 'none';
+    ovTitle.textContent = 'CHOOSE YOUR CAR';
+    ovSub.textContent = '';
+    ovSwatch.classList.remove('hidden');
+    ovCarName.classList.remove('hidden');
+    ovCarCount.classList.remove('hidden');
+    ovMsg.classList.add('hidden');
+    updateCarSelectUI();
+    setKeysHTML('LEFT/A&nbsp;&nbsp; RIGHT/D&nbsp;&nbsp; BROWSE<br>PRESS ENTER TO RACE');
+    playCarSelectMusic();
+  }
+
+  function showResults(title, sub){
+    overlay.style.display = 'flex';
+    logo.style.display = 'none';
+    ovTitle.textContent = title;
+    ovSub.textContent = sub;
+    ovSwatch.classList.add('hidden');
+    ovCarName.classList.add('hidden');
+    ovCarCount.classList.add('hidden');
+    ovMsg.classList.remove('hidden');
+    var passed = 0;
+    for (var i = 0; i < checkpoints.length; i++) if (checkpoints[i].passed) passed++;
+    ovMsg.innerHTML =
+      'SCORE ' + Math.floor(score).toString().padStart(6,'0') + '<br>' +
+      'CHECKPOINTS ' + passed + ' / ' + checkpoints.length + '<br>' +
+      'TIME LEFT ' + timeLeft.toFixed(1) + 's';
+    setKeysHTML('PRESS ENTER TO CONTINUE');
+    playResultsMusic();
+  }
+
   function hideOverlay(){ overlay.style.display = 'none'; }
 
   function startGame(){
@@ -978,7 +1093,7 @@
   buildCars();
   speed = maxSpeed * 0.1;
   hudStage.textContent = 'CHECKPOINT 0/' + checkpoints.length;
-  showOverlay('KODA', '', false);
+  showReadyOverlay();
 
   var last = performance.now();
   function loop(now){
